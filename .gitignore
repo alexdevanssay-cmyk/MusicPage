@@ -30,3 +30,4 @@ Thumbs.db
 
 # Large audio test recordings (kept locally, not in repo)
 *.mp3
+**/build/
