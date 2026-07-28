@@ -27,3 +27,6 @@ backend/data/musicpage.db
 Thumbs.db
 .idea/
 *.iml
+
+# Large audio test recordings (kept locally, not in repo)
+*.mp3
