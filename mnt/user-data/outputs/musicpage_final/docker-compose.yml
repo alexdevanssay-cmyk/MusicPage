@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data      # persist scores, DB, chroma across restarts
+      - ./backend:/app                # hot-reload in dev
+    environment:
+      - DEBUG=true
+      - HOST=0.0.0.0
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+# Note: Flutter frontend runs natively on the host (flutter run).
+# The backend is the only containerised component.

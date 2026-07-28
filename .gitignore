@@ -1,0 +1,29 @@
+# ── Python ───────────────────────────────────────────────
+.venv/
+**/__pycache__/
+*.pyc
+backend/build/
+backend/dist/
+*.spec.bak
+
+# ── Flutter / Dart ───────────────────────────────────────
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins-dependencies
+frontend/android/local.properties
+**/GeneratedPluginRegistrant.*
+
+# ── Build outputs / bundles ──────────────────────────────
+dist/
+*.apk
+*.aab
+
+# ── Data (regenerated; keep the sample score, drop big blobs) ─
+backend/data/chroma/*.npy
+backend/data/musicpage.db
+
+# ── OS / editor ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+*.iml

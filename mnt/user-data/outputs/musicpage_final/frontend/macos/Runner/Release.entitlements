@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macos/Runner/Release.entitlements
+  ───────────────────────────────────
+  Hardened Runtime entitlements for release / distribution builds.
+  These are the MINIMUM set required for the app to function when
+  distributed outside the Mac App Store (Developer ID signing).
+-->
+<plist version="1.0">
+<dict>
+    <!-- Microphone access -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- App Sandbox -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Outbound connections (local backend) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,524 @@
+name: Build & Release — All Platforms
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# Push a version tag to build + release:  git tag v1.0.0 && git push --tags
+# Or trigger manually from the Actions tab.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version string (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+env:
+  FLUTTER_VERSION: '3.22.0'
+  PYTHON_VERSION:  '3.12'
+  APP_NAME:        'MusicPage'
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 1 — Linux (.deb + AppImage)
+# ══════════════════════════════════════════════════════════════════════════════
+jobs:
+  build-linux:
+    name: Linux (.deb + AppImage)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Python backend ───────────────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build backend with PyInstaller (Linux)
+        working-directory: backend
+        env:
+          EXCLUDE_OEMER: '0'   # set to '1' to skip PyTorch and shrink to ~350 MB
+        run: |
+          pyinstaller musicpage.spec \
+            --distpath dist \
+            --workpath build/pyinstaller \
+            --clean
+          echo "Backend binary size:"
+          du -sh dist/musicpage_backend/
+
+      # ── Flutter ──────────────────────────────────────────────────────────────
+      - name: Install Linux Flutter dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libblkid-dev liblzma-dev ninja-build \
+            libgl1-mesa-dev libegl1-mesa-dev
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get + code gen
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter build Linux release
+        working-directory: frontend
+        run: flutter build linux --release
+
+      # ── Assemble ─────────────────────────────────────────────────────────────
+      - name: Bundle backend into Flutter output
+        run: |
+          FLUTTER_OUT=frontend/build/linux/x64/release/bundle
+          cp -R backend/dist/musicpage_backend  "$FLUTTER_OUT/backend"
+
+      - name: Create .deb package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FLUTTER_OUT=frontend/build/linux/x64/release/bundle
+          mkdir -p deb/usr/lib/musicpage deb/usr/bin deb/DEBIAN \
+                   deb/usr/share/applications
+
+          cp -R "$FLUTTER_OUT/." deb/usr/lib/musicpage/
+          printf '#!/bin/bash\nexec /usr/lib/musicpage/music_page "$@"\n' \
+            > deb/usr/bin/musicpage
+          chmod +x deb/usr/bin/musicpage
+
+          cat > deb/usr/share/applications/musicpage.desktop << EOF
+          [Desktop Entry]
+          Name=MusicPage
+          Exec=musicpage
+          Icon=musicpage
+          Type=Application
+          Categories=AudioVideo;Music;
+          EOF
+
+          cat > deb/DEBIAN/control << EOF
+          Package: musicpage
+          Version: $VERSION
+          Architecture: amd64
+          Maintainer: MusicPage <hello@musicpage.app>
+          Depends: libgtk-3-0, libblkid1
+          Description: Real-time score following
+          EOF
+
+          dpkg-deb --build deb \
+            "MusicPage-${VERSION}-linux-amd64.deb"
+
+      - name: Create AppImage
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Download appimagetool
+          curl -Lo appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+
+          FLUTTER_OUT=frontend/build/linux/x64/release/bundle
+          mkdir -p AppDir/usr/lib AppDir/usr/bin
+          cp -R "$FLUTTER_OUT/." AppDir/usr/lib/musicpage/
+
+          printf '#!/bin/bash\nHERE=$(dirname $(readlink -f $0))\nexec "$HERE/usr/lib/musicpage/music_page" "$@"\n' \
+            > AppDir/AppRun
+          chmod +x AppDir/AppRun
+
+          cat > AppDir/musicpage.desktop << EOF
+          [Desktop Entry]
+          Name=MusicPage
+          Exec=AppRun
+          Icon=musicpage
+          Type=Application
+          EOF
+
+          ARCH=x86_64 ./appimagetool AppDir \
+            "MusicPage-${VERSION}-x86_64.AppImage"
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            MusicPage-*.deb
+            MusicPage-*.AppImage
+          retention-days: 7
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 2 — macOS (.dmg)
+# ══════════════════════════════════════════════════════════════════════════════
+  build-macos:
+    name: macOS (.dmg)
+    runs-on: macos-14      # Apple Silicon; use macos-13 for Intel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build backend (macOS)
+        working-directory: backend
+        run: |
+          pyinstaller musicpage.spec \
+            --distpath dist \
+            --workpath build/pyinstaller \
+            --clean
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get + code gen
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter build macOS release
+        working-directory: frontend
+        run: flutter build macos --release
+
+      - name: Inject backend into .app bundle
+        run: |
+          APP="frontend/build/macos/Build/Products/Release/MusicPage.app"
+          RESOURCES="$APP/Contents/Resources"
+          mkdir -p "$RESOURCES/backend"
+          cp -R backend/dist/musicpage_backend/. "$RESOURCES/backend/"
+          chmod +x "$RESOURCES/backend/musicpage_backend"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create .dmg
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP="frontend/build/macos/Build/Products/Release/MusicPage.app"
+
+          create-dmg \
+            --volname "MusicPage" \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "MusicPage.app" 150 180 \
+            --app-drop-link 450 180 \
+            "MusicPage-${VERSION}-macOS.dmg" \
+            "$APP"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: MusicPage-*.dmg
+          retention-days: 7
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 3 — Windows (NSIS setup.exe)
+# ══════════════════════════════════════════════════════════════════════════════
+  build-windows:
+    name: Windows (setup.exe)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build backend (Windows)
+        working-directory: backend
+        shell: cmd
+        run: |
+          pyinstaller musicpage.spec ^
+            --distpath dist ^
+            --workpath build\pyinstaller ^
+            --clean
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get + code gen
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Flutter build Windows release
+        working-directory: frontend
+        run: flutter build windows --release
+
+      - name: Bundle backend
+        shell: powershell
+        run: |
+          $out = "frontend\build\windows\x64\runner\Release"
+          Copy-Item -Recurse -Force "backend\dist\musicpage_backend" "$out\backend"
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Create NSIS installer
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $out     = "frontend\build\windows\x64\runner\Release"
+
+          $nsi = @"
+          !include "MUI2.nsh"
+          Name "MusicPage"
+          OutFile "MusicPage-${version}-Windows-Setup.exe"
+          InstallDir "`$PROGRAMFILES64\MusicPage"
+          RequestExecutionLevel admin
+          !insertmacro MUI_PAGE_WELCOME
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_PAGE_FINISH
+          !insertmacro MUI_UNPAGE_CONFIRM
+          !insertmacro MUI_UNPAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "English"
+          Section "MusicPage" SecMain
+            SetOutPath "`$INSTDIR"
+            File /r "${out}\*.*"
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+            CreateShortcut "`$DESKTOP\MusicPage.lnk" "`$INSTDIR\music_page.exe"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MusicPage" "DisplayName" "MusicPage"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MusicPage" "UninstallString" "`$INSTDIR\Uninstall.exe"
+          SectionEnd
+          Section "Uninstall"
+            RMDir /r "`$INSTDIR"
+            Delete "`$DESKTOP\MusicPage.lnk"
+            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MusicPage"
+          SectionEnd
+          "@
+          $nsi | Out-File -Encoding ASCII "installer.nsi"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "installer.nsi"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: MusicPage-*-Windows-Setup.exe
+          retention-days: 7
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 4 — Android (.apk sideload + .aab Play Store)
+# ══════════════════════════════════════════════════════════════════════════════
+  build-android:
+    name: Android (.apk + .aab)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17 (required by Gradle)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter pub get + code gen
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      # ── Signing (optional — comment out if no keystore) ─────────────────────
+      # To enable signing:
+      #   1. Create keystore: keytool -genkey -v -keystore musicpage.jks ...
+      #   2. Base64-encode it: base64 musicpage.jks | pbcopy
+      #   3. Add GitHub secrets: KEYSTORE_BASE64, KEY_ALIAS, KEY_PASSWORD, STORE_PASSWORD
+      - name: Decode keystore (if secret exists)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > frontend/android/musicpage.jks
+          cat > frontend/android/key.properties << EOF
+          storePassword=${{ secrets.STORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=musicpage.jks
+          EOF
+
+      - name: Flutter build APK (universal, sideloadable)
+        working-directory: frontend
+        run: flutter build apk --release --split-per-abi
+
+      - name: Flutter build App Bundle (Play Store)
+        working-directory: frontend
+        run: flutter build appbundle --release
+
+      - name: Rename outputs
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp frontend/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+             "MusicPage-${VERSION}-android-arm64.apk"
+          cp frontend/build/app/outputs/bundle/release/app-release.aab \
+             "MusicPage-${VERSION}-android.aab"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-packages
+          path: |
+            MusicPage-*.apk
+            MusicPage-*.aab
+          retention-days: 7
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 5 — iOS / iPadOS (.ipa)
+# ══════════════════════════════════════════════════════════════════════════════
+  build-ios:
+    name: iOS / iPadOS (.ipa)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods --no-document
+          cd frontend/ios && pod install
+
+      - name: Flutter pub get + code gen
+        working-directory: frontend
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      # ── With Apple Developer certificate (set secrets to enable) ─────────────
+      # Add these GitHub secrets to sign the IPA:
+      #   IOS_CERTIFICATE_BASE64     — P12 certificate (base64)
+      #   IOS_CERTIFICATE_PASSWORD   — P12 password
+      #   IOS_PROVISION_PROFILE_BASE64 — .mobileprovision (base64)
+      - name: Install signing certificate
+        if: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/cert.p12
+          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 -d > "$CERT_PATH"
+          security create-keychain -p "" build.keychain
+          security import "$CERT_PATH" -k build.keychain \
+            -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security list-keychains -s build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "" build.keychain
+
+          PP_PATH=$RUNNER_TEMP/profile.mobileprovision
+          echo "${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}" | base64 -d > "$PP_PATH"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PP_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Flutter build iOS (no-codesign fallback)
+        working-directory: frontend
+        run: |
+          if [ -n "${{ secrets.IOS_CERTIFICATE_BASE64 }}" ]; then
+            flutter build ipa --release \
+              --export-options-plist=ios/ExportOptions.plist
+          else
+            echo "⚠ No signing secrets — building without codesign (simulator only)"
+            flutter build ios --release --no-codesign
+          fi
+
+      - name: Upload iOS artifact
+        if: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: frontend/build/ios/ipa/*.ipa
+          retention-days: 7
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  JOB 6 — GitHub Release (runs after all builds succeed)
+# ══════════════════════════════════════════════════════════════════════════════
+  release:
+    name: Create GitHub Release
+    needs: [build-linux, build-macos, build-windows, build-android, build-ios]
+    runs-on: ubuntu-latest
+    # Only run on version tags, not on manual dispatch
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "MusicPage ${{ github.ref_name }}"
+          body: |
+            ## MusicPage ${{ github.ref_name }}
+
+            ### Downloads
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | 🍎 macOS | `MusicPage-*-macOS.dmg` | Double-click to install |
+            | 🪟 Windows | `MusicPage-*-Windows-Setup.exe` | Run as Administrator |
+            | 🐧 Linux (deb) | `MusicPage-*.deb` | `sudo dpkg -i MusicPage.deb` |
+            | 🐧 Linux (universal) | `MusicPage-*.AppImage` | `chmod +x && ./MusicPage.AppImage` |
+            | 🤖 Android | `MusicPage-*-android-arm64.apk` | Enable "Install from unknown sources" |
+            | 📱 iOS | `MusicPage-*.ipa` | Requires signed build |
+
+            ### Mobile setup
+            > On Android and iOS, the Python backend must run on your desktop.
+            > Configure the host in **Settings → Backend connection**.
+          files: artifacts/*
+          draft: false
+          prerelease: false

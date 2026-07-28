@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ios/ExportOptions.plist
+  ────────────────────────
+  Used by `flutter build ipa` for automated archive export.
+  Fill in your Apple Developer credentials before use.
+
+  Method options:
+    app-store         → upload to App Store Connect
+    ad-hoc            → distribute to registered test devices (UDID)
+    development       → for development devices only
+    enterprise        → for Apple Developer Enterprise Program
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>ad-hoc</string>   <!-- change to app-store for production -->
+
+    <!-- Your 10-character Apple Team ID -->
+    <key>teamID</key>
+    <string>XXXXXXXXXX</string>
+
+    <!-- Bundle identifier must match Xcode project -->
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.musicpage.app</key>
+        <string>MusicPage AdHoc</string>   <!-- name of your provisioning profile -->
+    </dict>
+
+    <key>signingStyle</key>
+    <string>manual</string>
+
+    <key>signingCertificate</key>
+    <string>iPhone Distribution</string>
+
+    <!-- Strip Swift symbols to reduce IPA size -->
+    <key>stripSwiftSymbols</key>
+    <true/>
+
+    <!-- Upload symbols to Apple for crash reporting -->
+    <key>uploadSymbols</key>
+    <true/>
+
+    <key>compileBitcode</key>
+    <false/>
+</dict>
+</plist>

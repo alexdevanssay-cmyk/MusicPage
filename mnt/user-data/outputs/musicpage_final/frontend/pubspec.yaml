@@ -1,0 +1,56 @@
+name: music_page
+description: Real-time score following with automatic page turns.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── State management ──────────────────────────────────────────────
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5   # provides @riverpod / @Riverpod annotations
+
+  # ── Navigation ────────────────────────────────────────────────────
+  go_router: ^14.2.0
+
+  # ── PDF display ───────────────────────────────────────────────────
+  # Hardware-accelerated, stable page-jump API.
+  syncfusion_flutter_pdfviewer: ^26.1.35
+  syncfusion_flutter_core: ^26.1.35    # required peer dep of the viewer
+
+  # ── Audio capture ─────────────────────────────────────────────────
+  record: ^5.1.2                       # cross-platform PCM streaming
+  permission_handler: ^11.3.1          # explicit mic permission request
+
+  # ── WebSocket ─────────────────────────────────────────────────────
+  web_socket_channel: ^3.0.0
+
+  # ── Network / API ─────────────────────────────────────────────────
+  dio: ^5.4.3+1                        # multipart upload + REST
+
+  # ── Storage / Files ───────────────────────────────────────────────
+  shared_preferences: ^2.2.3
+  path_provider: ^2.1.3                # temp/app-doc dirs for file ops
+  path: ^1.9.0                         # path.join / path.extension helpers
+  file_picker: ^8.0.3                  # PDF import dialog
+
+  # ── UI ────────────────────────────────────────────────────────────
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.9          # dart run build_runner build  (generates .g.dart)
+  riverpod_generator: ^2.4.0    # generates router.g.dart from @Riverpod annotations
+  mockito: ^5.4.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/

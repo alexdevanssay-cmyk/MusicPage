@@ -1,0 +1,23 @@
+"""
+Patch for reference_builder.py – adds the two attributes accessed by
+score_service.py when it loads note_events from DB without re-running build().
+"""
+# This snippet is already merged into reference_builder.py in the project.
+# Reproduced here for clarity.
+
+# In ReferenceBuilder.__init__, frame_rate is set as:
+#   self.frame_rate: float = self.sr / self.hop_length
+
+# _rebuild_page_map is called by score_service after loading cached chroma:
+#   builder._rebuild_page_map()
+# It sets self.page_map from self.note_events (already populated from DB).
+#
+# Add this method to ReferenceBuilder if not already present:
+#
+#   def _rebuild_page_map(self) -> None:
+#       if self.note_events:
+#           total_secs = max(on + dur for _, on, dur, *_ in self.note_events)
+#           n_frames = int(np.ceil(total_secs * self.frame_rate)) + 1
+#           self._build_page_map(self.note_events, n_frames)
+#
+# This is already in reference_builder.py – this file is docs-only.

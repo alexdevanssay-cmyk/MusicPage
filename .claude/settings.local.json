@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:claude.ai)",
+      "Bash(command -v flutter)",
+      "Bash(command -v dart)",
+      "Bash(command -v java)",
+      "Bash(flutter --version)",
+      "Bash(echo \"flutter version running in bg, pid $!\")",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -c ' *)",
+      "Bash(grep -viE \"^oemer\" requirements.txt)",
+      "Bash(grep -vE \"^\\\\s*#|^\\\\s*$\" /c/Users/Alexis/AppData/Local/Temp/claude/req-core.txt)",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pip install --disable-pip-version-check -r /c/Users/Alexis/AppData/Local/Temp/claude/req-core.txt)",
+      "Bash(echo \"PIP_EXIT=$?\")",
+      "Bash(xargs -n1 basename)",
+      "Bash(taskkill //F //IM dart.exe)",
+      "Bash(taskkill //F //IM flutter.bat)",
+      "Bash(flutter pub *)",
+      "Bash(echo \"PUBGET_EXIT=$?\")",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pytest -p no:cacheprovider --no-header -q)",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pytest -p no:cacheprovider --no-header -q -p no:cov -o addopts=\"\" tests/test_chroma_extractor.py::TestChromaExtractorBasic::test_continuity_across_chunks \"tests/test_online_dtw.py::TestOnlineDTWStep::test_tempo_double_speed\")",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -o addopts=\"\" -q tests/test_online_dtw.py tests/test_chroma_extractor.py)",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -o addopts=\"\" -q tests/test_online_dtw.py)",
+      "Bash(/c/MusicPage/.venv/Scripts/python.exe -m pytest -p no:cacheprovider -o addopts=\"-q --no-header\")"
+    ]
+  }
+}
