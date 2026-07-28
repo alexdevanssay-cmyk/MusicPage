@@ -80,6 +80,7 @@ class SessionState:
         self.stats: Optional[PerformanceStats] = None
         self.is_following = False
         self.last_page = 1
+        self.audio_chunks = 0
 
 
 async def ws_session_handler(websocket: WebSocket) -> None:
@@ -110,6 +111,13 @@ async def ws_session_handler(websocket: WebSocket) -> None:
                     continue
 
                 pcm_bytes: bytes = message["bytes"]
+                state.audio_chunks += 1
+                if state.audio_chunks == 1 or state.audio_chunks % 40 == 0:
+                    import numpy as _np
+                    _a = _np.frombuffer(pcm_bytes, dtype=_np.float32)
+                    _rms = float(_np.sqrt(_np.mean(_a ** 2))) if _a.size else 0.0
+                    logger.info("AUDIO_IN chunk#%d bytes=%d rms=%.5f",
+                                state.audio_chunks, len(pcm_bytes), _rms)
                 await _process_audio(websocket, state, pcm_bytes)
 
             # ── Text: control message ───────────────────────────────────────────
