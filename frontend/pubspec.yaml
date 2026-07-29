@@ -63,5 +63,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/filterbank_f32.bin
 
 

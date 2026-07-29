@@ -12,7 +12,6 @@ import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../models/position.dart';
 import '../providers/reader_provider.dart';
 import '../providers/score_provider.dart';
-import '../providers/settings_provider.dart';
 import '../widgets/control_bar.dart';
 import '../widgets/tracking_indicator.dart';
 import '../widgets/stats_overlay.dart';
@@ -57,8 +56,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   @override
   Widget build(BuildContext context) {
     final readerState = ref.watch(readerProvider(widget.scoreId));
-    final scoreAsync = ref.watch(scoreDetailProvider(widget.scoreId));
-    final settings = ref.read(settingsProvider);
 
     // React to page changes from the backend
     ref.listen(readerProvider(widget.scoreId), (prev, next) {
@@ -74,26 +71,36 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── PDF Viewer ──────────────────────────────────────────────────────
-            scoreAsync.when(
+            // ── PDF Viewer (local file when downloaded, else network) ───────────
+            ref.watch(readerPdfProvider(widget.scoreId)).when(
               loading: () => const Center(
                 child: CircularProgressIndicator(color: Colors.white),
               ),
               error: (e, _) => Center(
                 child: Text(e.toString(), style: const TextStyle(color: Colors.white)),
               ),
-              data: (score) => SfPdfViewer.network(
-                '${settings.baseUrl}/api/v1/scores/${widget.scoreId}/pdf',
-                controller: _pdfController,
-                pageLayoutMode: PdfPageLayoutMode.single,
-                scrollDirection: PdfScrollDirection.horizontal,
-                enableDoubleTapZooming: true,
-                onPageChanged: (PdfPageChangedDetails details) {
-                  ref
-                      .read(readerProvider(widget.scoreId).notifier)
-                      .navigateToPage(details.newPageNumber);
-                },
-              ),
+              data: (src) {
+                void onPage(PdfPageChangedDetails d) => ref
+                    .read(readerProvider(widget.scoreId).notifier)
+                    .navigateToPage(d.newPageNumber);
+                return src.file != null
+                    ? SfPdfViewer.file(
+                        src.file!,
+                        controller: _pdfController,
+                        pageLayoutMode: PdfPageLayoutMode.single,
+                        scrollDirection: PdfScrollDirection.horizontal,
+                        enableDoubleTapZooming: true,
+                        onPageChanged: onPage,
+                      )
+                    : SfPdfViewer.network(
+                        src.url,
+                        controller: _pdfController,
+                        pageLayoutMode: PdfPageLayoutMode.single,
+                        scrollDirection: PdfScrollDirection.horizontal,
+                        enableDoubleTapZooming: true,
+                        onPageChanged: onPage,
+                      );
+              },
             ),
 
             // ── Tracking indicator (always visible, top-right) ──────────────────

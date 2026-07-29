@@ -7,7 +7,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/score.dart';
 import '../services/api_service.dart';
+import '../services/offline_store.dart';
 import 'settings_provider.dart';
+
+// Resolves where the reader should load a score's PDF from: a locally-stored
+// file when the score has been downloaded for offline use, otherwise streamed
+// from the backend. Lets the reader work with the PC off.
+final readerPdfProvider = FutureProvider.family<({File? file, String url}), String>((ref, scoreId) async {
+  final settings = ref.watch(settingsProvider);
+  final url = '${settings.baseUrl}/api/v1/scores/$scoreId/pdf';
+  final store = OfflineStore();
+  if (await store.isDownloaded(scoreId)) {
+    final f = await store.pdfFile(scoreId);
+    if (await f.exists()) return (file: f, url: url);
+  }
+  return (file: null, url: url);
+});
 
 // ── Scores list ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +98,34 @@ final scoreDetailProvider = FutureProvider.family<Score, String>(
 final apiServiceProvider = Provider<ApiService>((ref) {
   final settings = ref.watch(settingsProvider);
   return ApiService(baseUrl: settings.baseUrl);
+});
+
+// ── Offline downloads ─────────────────────────────────────────────────────────────
+
+/// IDs of scores that have been downloaded for offline following.
+final downloadedIdsProvider = FutureProvider<Set<String>>((ref) async {
+  final metas = await OfflineStore().listLocal();
+  return metas.map((m) => m.id).toSet();
+});
+
+/// Locally-stored scores, shown when the backend is unreachable.
+final offlineScoresProvider = FutureProvider<List<Score>>((ref) async {
+  final metas = await OfflineStore().listLocal();
+  return metas
+      .map((m) => Score(
+            id: m.id,
+            title: m.title,
+            composer: m.composer,
+            totalPages: m.totalPages,
+            totalMeasures: 0,
+            durationSecs: 0,
+            tempoBpm: 120,
+            timeSignature: '4/4',
+            isAnalyzed: true,
+            isFavorite: false,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+          ))
+      .toList();
 });
 
 // ── Search filter ─────────────────────────────────────────────────────────────────

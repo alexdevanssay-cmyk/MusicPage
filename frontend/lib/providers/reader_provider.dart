@@ -6,12 +6,16 @@
 //   • WebSocket connection state
 //   • Audio capture toggle
 
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/position.dart';
 import '../models/perf_stats.dart';
+import '../offline/offline_follower.dart';
 import '../services/websocket_service.dart';
 import '../services/audio_service.dart';
+import '../services/offline_store.dart';
 import 'settings_provider.dart';
 
 // ── Reader state ─────────────────────────────────────────────────────────────────
@@ -81,6 +85,8 @@ class ReaderState {
 class ReaderNotifier extends FamilyNotifier<ReaderState, String> {
   late WsService _ws;
   late AudioCaptureService _audio;
+  final OfflineStore _store = OfflineStore();
+  OfflineFollower? _offline; // non-null while following on-device
 
   @override
   ReaderState build(String scoreId) {
@@ -113,15 +119,36 @@ class ReaderNotifier extends FamilyNotifier<ReaderState, String> {
     final settings = ref.read(settingsProvider);
 
     try {
-      // Connect WebSocket
+      // Prefer fully on-device following when the score has been downloaded —
+      // works with no server / off Wi-Fi.
+      if (await _store.isDownloaded(state.scoreId)) {
+        final bundle = await _store.loadBundle(state.scoreId);
+        final fb = await OfflineStore.loadFilterbank();
+        _offline = OfflineFollower(
+          bundle: bundle,
+          filterbank: fb,
+          preloadThr: settings.preloadThreshold,
+          turnThr: settings.pageTurnThreshold,
+        );
+        state = state.copyWith(
+          totalPages: _offline!.totalPages,
+          followingState: FollowingState.following,
+        );
+        await _audio.startCapture(
+          onChunk: _onOfflineChunk,
+          sampleRate: 22050,
+          deviceId: settings.audioDeviceId,
+        );
+        return;
+      }
+
+      // Otherwise stream to the backend over the WebSocket.
       await _ws.connect();
       await _ws.send({
         'type': 'start_session',
         'score_id': state.scoreId,
         'sensitivity': settings.micSensitivity,
       });
-
-      // Start audio capture – PCM chunks go directly to WebSocket
       await _audio.startCapture(
         onChunk: (bytes) => _ws.sendBinary(bytes),
         sampleRate: 22050,
@@ -137,6 +164,14 @@ class ReaderNotifier extends FamilyNotifier<ReaderState, String> {
     }
   }
 
+  void _onOfflineChunk(Uint8List bytes) {
+    final f = _offline;
+    if (f == null) return;
+    for (final ev in f.processBytes(bytes)) {
+      _handleWsMessage(ev);
+    }
+  }
+
   Future<void> pauseFollowing() async {
     if (!state.isFollowing) return;
     await _audio.stopCapture();
@@ -147,7 +182,7 @@ class ReaderNotifier extends FamilyNotifier<ReaderState, String> {
     if (state.followingState != FollowingState.paused) return;
     final settings = ref.read(settingsProvider);
     await _audio.startCapture(
-      onChunk: (bytes) => _ws.sendBinary(bytes),
+      onChunk: _offline != null ? _onOfflineChunk : (bytes) => _ws.sendBinary(bytes),
       sampleRate: 22050,
       deviceId: settings.audioDeviceId,
     );
@@ -228,8 +263,14 @@ class ReaderNotifier extends FamilyNotifier<ReaderState, String> {
 
   void _stopFollowing() {
     _audio.stopCapture();
-    _ws.send({'type': 'stop_session'}).ignore();
-    _ws.disconnect();
+    if (_offline != null) {
+      // on-device session — emit the whole-piece recap, then release it
+      _handleWsMessage(_offline!.sessionSummary());
+      _offline = null;
+    } else {
+      _ws.send({'type': 'stop_session'}).ignore();
+      _ws.disconnect();
+    }
   }
 }
 

@@ -42,6 +42,8 @@ class ScoreService:
         filename: str,
         title: Optional[str] = None,
         composer: Optional[str] = None,
+        midi_bytes: Optional[bytes] = None,
+        midi_filename: Optional[str] = None,
     ) -> ScoreResponse:
         """
         Full import pipeline:
@@ -71,11 +73,19 @@ class ScoreService:
         self._db.add(score)
         await self._db.flush()
 
-        # Run OMR (may take 10-60 seconds)
         xml_dir = settings.MUSICXML_DIR / score_id
+        xml_dir.mkdir(parents=True, exist_ok=True)
         try:
-            xml_path = await self._omr.convert(pdf_path, xml_dir)
-            await self._analyse_score(score, xml_path)
+            if midi_bytes:
+                # Real reference straight from a MIDI/MusicXML file (no OMR).
+                ext = Path(midi_filename or "score.mid").suffix or ".mid"
+                ref_path = xml_dir / f"{stem}{ext}"
+                ref_path.write_bytes(midi_bytes)
+                await self._analyse_score(score, ref_path)
+            else:
+                # Fall back to OMR on the PDF (stub if the OMR engine is absent).
+                xml_path = await self._omr.convert(pdf_path, xml_dir)
+                await self._analyse_score(score, xml_path)
         except Exception as exc:
             logger.error("Analysis failed for %s: %s", score_id, exc)
             # Score is still saved (un-analysed)

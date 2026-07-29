@@ -12,6 +12,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../models/score.dart';
 import '../providers/score_provider.dart';
+import '../providers/settings_provider.dart';
+import '../services/offline_store.dart';
 import '../widgets/score_card.dart';
 
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -33,8 +35,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scores = ref.watch(filteredScoresProvider);
     final scoresAsync = ref.watch(scoresProvider);
+    final downloaded = ref.watch(downloadedIdsProvider).valueOrNull ?? const <String>{};
+    // When the backend is unreachable, fall back to downloaded scores so the
+    // library still works with the PC off / off the home Wi-Fi.
+    final offlineMode = scoresAsync.hasError;
+    final scores = offlineMode
+        ? (ref.watch(offlineScoresProvider).valueOrNull ?? const <Score>[])
+        : ref.watch(filteredScoresProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
@@ -121,7 +129,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             const SliverFillRemaining(
               child: Center(child: CircularProgressIndicator()),
             )
-          else if (scoresAsync.hasError)
+          else if (offlineMode && scores.isEmpty)
             SliverFillRemaining(
               child: _ErrorView(
                 message: scoresAsync.error.toString(),
@@ -132,7 +140,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             SliverFillRemaining(child: _EmptyLibrary(onImport: _pickPdf))
 
           // ── Score grid ───────────────────────────────────────────────────────
-          else
+          else ...[
+            if (offlineMode)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.offline_bolt, size: 16, color: Colors.orange.shade700),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Offline — showing downloaded scores',
+                          style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => ref.invalidate(scoresProvider),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
               sliver: SliverGrid(
@@ -141,6 +171,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     final score = scores[i];
                     return ScoreCard(
                       score: score,
+                      isDownloaded: downloaded.contains(score.id),
+                      onDownload: offlineMode ? null : () => _download(score),
                       onTap: () => context.push('/reader/${score.id}'),
                       onFavorite: () =>
                           ref.read(scoresProvider.notifier).toggleFavorite(score.id),
@@ -160,6 +192,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 ),
               ),
             ),
+          ],
         ],
       ),
 
@@ -213,6 +246,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       }
     } finally {
       if (mounted) setState(() => _isImporting = false);
+    }
+  }
+
+  Future<void> _download(Score score) async {
+    final baseUrl = ref.read(settingsProvider).baseUrl;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(content: Text('Downloading "${score.title}"…')));
+    try {
+      await OfflineStore().download(score.id, baseUrl);
+      ref.invalidate(downloadedIdsProvider);
+      ref.invalidate(offlineScoresProvider);
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: Text('"${score.title}" available offline'),
+          backgroundColor: Colors.green.shade700,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: Text('Download failed: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 

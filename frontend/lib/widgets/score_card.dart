@@ -10,12 +10,16 @@ class ScoreCard extends StatelessWidget {
     required this.onTap,
     required this.onFavorite,
     required this.onDelete,
+    this.onDownload,
+    this.isDownloaded = false,
   });
 
   final Score score;
   final VoidCallback onTap;
   final VoidCallback onFavorite;
   final VoidCallback onDelete;
+  final VoidCallback? onDownload;
+  final bool isDownloaded;
 
   @override
   Widget build(BuildContext context) {
@@ -58,14 +62,30 @@ class ScoreCard extends StatelessWidget {
                     children: [
                       _StatusChip(isAnalyzed: score.isAnalyzed),
                       const Spacer(),
+                      if (isDownloaded)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 2),
+                          child: Icon(Icons.offline_pin,
+                              size: 18, color: Colors.green.shade400),
+                        ),
                       // Context menu
                       PopupMenuButton<String>(
                         iconSize: 20,
                         onSelected: (v) {
                           if (v == 'delete') onDelete();
                           if (v == 'favorite') onFavorite();
+                          if (v == 'download') onDownload?.call();
                         },
                         itemBuilder: (_) => [
+                          if (onDownload != null && !isDownloaded)
+                            const PopupMenuItem(
+                              value: 'download',
+                              child: ListTile(
+                                dense: true,
+                                leading: Icon(Icons.download_for_offline_outlined),
+                                title: Text('Download for offline'),
+                              ),
+                            ),
                           PopupMenuItem(
                             value: 'favorite',
                             child: ListTile(
